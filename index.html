@@ -1,15 +1,157 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR Hand Control</title>
-    <style>
-        body { margin: 0; overflow: hidden; }
-        canvas { display: block; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AR + Жесты (three.js + HandTrack.js)</title>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
+    #cam {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* Зеркалка для селфи */
+    }
+    #three-canvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+  </style>
+
+  <!-- VConsole для отладки -->
+  <script src="https://unpkg.com/vconsole@3.15.0/dist/vconsole.min.js"></script>
+  <script>new VConsole();</script>
+
+  <!-- three.js через CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+
+  <!-- HandTrack.js через CDN -->
+  <script src="https://unpkg.com/@tensorflow/tfjs@3.9.0/dist/tf.min.js"></script>
+  <script src="https://unpkg.com/handtrackjs@0.1.8/dist/handtrack.min.js"></script>
 </head>
 <body>
-    <script src="app.js" type="module"></script>
+  <video id="cam" autoplay playsinline muted></video>
+  <canvas id="three-canvas"></canvas>
+
+  <script>
+    // 1) Запуск камеры
+    const video = document.getElementById('cam');
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(stream => {
+        console.log('🎥 Камера запущена');
+        video.srcObject = stream;
+      })
+      .catch(err => {
+        console.error('Ошибка доступа к камере:', err);
+        alert('Не удалось включить камеру:\n' + err.message);
+      });
+
+    // 2) Инициализация three.js
+    const canvas = document.getElementById('three-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
+    camera.position.set(0, 0, 1);
+    scene.add(new THREE.HemisphereLight(0xffffbb, 0x080820, 1));
+
+    // 3) Создание треугольника
+    const geometry = new THREE.BufferGeometry();
+    const vertices = new Float32Array([
+      0, 0.2, 0,   // Вершина 1
+      -0.2, -0.2, 0, // Вершина 2
+      0.2, -0.2, 0   // Вершина 3
+    ]);
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
+    const triangle = new THREE.Mesh(geometry, material);
+    triangle.scale.set(0.2, 0.2, 0.2);
+    scene.add(triangle);
+
+    // 4) Настройка HandTrack.js
+    let model = null;
+    const modelParams = {
+      flipHorizontal: true, // Зеркалим для видео
+      maxNumBoxes: 2,       // Максимум 2 руки
+      iouThreshold: 0.5,
+      scoreThreshold: 0.7   // Уверенность
+    };
+
+    handTrack.load(modelParams).then(lmodel => {
+      console.log('✅ HandTrack.js загружен');
+      model = lmodel;
+      startHandTracking();
+    });
+
+    function startHandTracking() {
+      model.getVideo().srcObject = video.srcObject;
+      model.startVideo(video).then(status => {
+        if (status) {
+          console.log('Видео для HandTrack запущено');
+          trackHands();
+        } else {
+          console.error('Ошибка запуска видео HandTrack');
+        }
+      });
+    }
+
+    let prevDist = null, prevAng = null;
+    function trackHands() {
+      model.detect(video).then(predictions => {
+        console.log('Рук обнаружено:', predictions.length);
+        if (!triangle) return;
+
+        // Одна рука: перемещение
+        if (predictions.length === 1) {
+          const box = predictions[0].bbox;
+          const nx = (box[0] + box[2] / 2) / video.videoWidth * 2 - 1;
+          const ny = -((box[1] + box[3] / 2) / video.videoHeight * 2 - 1);
+          triangle.position.set(nx * 0.5, ny * 0.5, 0);
+        }
+        // Две руки: масштаб и вращение
+        else if (predictions.length === 2) {
+          const A = { x: (predictions[0].bbox[0] + predictions[0].bbox[2] / 2) / video.videoWidth,
+                      y: (predictions[0].bbox[1] + predictions[0].bbox[3] / 2) / video.videoHeight };
+          const B = { x: (predictions[1].bbox[0] + predictions[1].bbox[2] / 2) / video.videoWidth,
+                      y: (predictions[1].bbox[1] + predictions[1].bbox[3] / 2) / video.videoHeight };
+
+          // Масштаб
+          const dist = Math.hypot(A.x - B.x, A.y - B.y);
+          if (prevDist !== null) {
+            const sf = dist / prevDist;
+            triangle.scale.multiplyScalar(sf);
+          }
+          prevDist = dist;
+
+          // Вращение
+          const ang = Math.atan2(B.y - A.y, B.x - A.x);
+          if (prevAng !== null) {
+            triangle.rotation.z += ang - prevAng;
+          }
+          prevAng = ang;
+        } else {
+          prevDist = prevAng = null;
+        }
+
+        requestAnimationFrame(trackHands);
+      });
+    }
+
+    // 5) Анимация
+    (function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    })();
+
+    // 6) Обработка ресайза
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
 </body>
 </html>
