@@ -6,8 +6,11 @@
   <title>Markerless AR Triangle with Gesture Control</title>
   <!-- Подключаем Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-  <!-- Подключаем Handsfree.js с альтернативного CDN -->
+  <!-- Подключаем Handsfree.js CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsfree@8.5.1/dist/handsfree.css">
+  <!-- Подключаем Handsfree.js с fallback на локальную копию -->
   <script src="https://cdn.jsdelivr.net/npm/handsfree@8.5.1/dist/handsfree.js"></script>
+  <script>window.Handsfree || document.write('<script src="assets/handsfree.js"></script>')</script>
   <style>
     body {
       margin: 0;
@@ -54,7 +57,7 @@
     // Проверка загрузки Handsfree.js
     if (typeof Handsfree === 'undefined') {
       document.getElementById('error-message').style.display = 'block';
-      document.getElementById('error-message').innerText = 'Error: Handsfree.js failed to load. Please check your network or CDN.';
+      document.getElementById('error-message').innerText = 'Error: Handsfree.js failed to load. Ensure the local copy is in the "assets" folder.';
       throw new Error('Handsfree.js is not loaded');
     }
 
