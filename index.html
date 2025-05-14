@@ -3,35 +3,39 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AR + Жесты (three.js + WebXR)</title>
+  <title>AR + Жесты (three.js + handtrack.js)</title>
   <style>
-    html, body { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
+    html, body { margin:0; padding:0; overflow:hidden; width:100%; height:100%; }
     #cam {
-      position: absolute; top: 0; left: 0;
-      width: 100%; height: 100%;
-      object-fit: cover;
-      transform: scaleX(-1);
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
+      object-fit:cover;
+      transform:scaleX(-1);
     }
     #three-canvas {
-      position: absolute; top: 0; left: 0;
-      width: 100%; height: 100%;
-      pointer-events: none;
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
+      pointer-events:none;
     }
   </style>
 
-  <!-- VConsole для отладки -->
+  <!-- VConsole for debugging -->
   <script src="https://unpkg.com/vconsole@3.15.0/dist/vconsole.min.js"></script>
   <script>new VConsole();</script>
-
-  <!-- three.js через CDN -->
+  
+  <!-- three.js and GLTFLoader -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
+  
+  <!-- handtrack.js -->
+  <script src="https://cdn.jsdelivr.net/npm/handtrackjs@0.1.8/dist/handtrack.min.js"></script>
 </head>
 <body>
   <video id="cam" autoplay playsinline muted></video>
   <canvas id="three-canvas"></canvas>
 
   <script>
-    // 1) Запуск камеры
+    // 1) Camera setup
     const video = document.getElementById('cam');
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => {
@@ -43,24 +47,24 @@
         alert('Не удалось включить камеру:\n' + err.message);
       });
 
-    // 2) Инициализация three.js
+    // 2) three.js setup
     const canvas = document.getElementById('three-canvas');
     const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.xr.enabled = true; // Включаем WebXR
+    renderer.setClearColor(0xff0000, 0.3);
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
     camera.position.set(0, 0, 1);
     scene.add(new THREE.HemisphereLight(0xffffbb, 0x080820, 1));
 
-    // 3) Создание треугольника
+    // 3) Create triangle
     const geometry = new THREE.BufferGeometry();
     const vertices = new Float32Array([
-      0, 0.2, 0,
-      -0.2, -0.2, 0,
-      0.2, -0.2, 0
+      0, 0.5, 0,   // Top
+      -0.5, -0.5, 0, // Bottom-left
+      0.5, -0.5, 0  // Bottom-right
     ]);
     geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
     const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
@@ -68,99 +72,88 @@
     triangle.scale.set(0.2, 0.2, 0.2);
     scene.add(triangle);
 
-    // 4) WebXR Hand Tracking
-    let session = null;
-    let hands = [];
-    async function startXR() {
-      if (!navigator.xr) {
-        console.error('WebXR не поддерживается');
-        alert('Ваш браузер не поддерживает WebXR');
-        return;
-      }
-
-      try {
-        session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hand-tracking']
-        });
-
-        renderer.xr.setSession(session);
-        session.addEventListener('inputsourceschange', () => {
-          hands = session.inputSources.filter(source => source.hand);
-        });
-
-        console.log('✅ WebXR сессия запущена');
-      } catch (err) {
-        console.error('Ошибка WebXR:', err);
-        alert('Ошибка WebXR: ' + err.message);
-      }
-    }
-
-    // 5) Обработка жестов
-    let prevDist = null, prevAng = null;
-    function onHands(frame) {
-      if (!triangle || !session || !frame) return;
-
-      const handData = [];
-      for (const inputSource of session.inputSources) {
-        if (inputSource.hand) {
-          const wrist = inputSource.hand.get('wrist');
-          if (wrist) {
-            const pose = frame.getJointPose(wrist, renderer.xr.getReferenceSpace());
-            if (pose) {
-              handData.push({
-                x: pose.transform.position.x,
-                y: pose.transform.position.y
-              });
-            }
-          }
-        }
-      }
-
-      console.log('Рук обнаружено:', handData.length);
-
-      // Одна рука: перемещение
-      if (handData.length === 1) {
-        const nx = handData[0].x * 2;
-        const ny = handData[0].y * 2;
-        triangle.position.set(nx * 0.5, ny * 0.5, 0);
-      }
-      // Две руки: масштаб и вращение
-      else if (handData.length === 2) {
-        const A = handData[0];
-        const B = handData[1];
-
-        const dist = Math.hypot(A.x - B.x, A.y - B.y);
-        if (prevDist !== null) {
-          const sf = dist / prevDist;
-          triangle.scale.multiplyScalar(sf);
-        }
-        prevDist = dist;
-
-        const ang = Math.atan2(B.y - A.y, B.x - A.x);
-        if (prevAng !== null) {
-          triangle.rotation.z += ang - prevAng;
-        }
-        prevAng = ang;
-      } else {
-        prevDist = prevAng = null;
-      }
-    }
-
-    // 6) Анимация
-    renderer.setAnimationLoop((time, frame) => {
-      onHands(frame);
-      renderer.render(scene, camera);
+    // 4) handtrack.js setup
+    const modelParams = {
+      flipHorizontal: true,
+      maxNumBoxes: 2,
+      iouThreshold: 0.5,
+      scoreThreshold: 0.7
+    };
+    let model = null;
+    handTrack.load(modelParams).then(lmodel => {
+      console.log('✅ handtrack.js загружен');
+      model = lmodel;
+      startHandTrack();
     });
 
-    // 7) Обработка ресайза
+    // 5) Start hand tracking
+    function startHandTrack() {
+      handTrack.startVideo(video).then(status => {
+        if (status) {
+          console.log('Видео запущено для handtrack.js');
+          detectHands();
+        } else {
+          console.error('Ошибка запуска видео для handtrack.js');
+        }
+      });
+    }
+
+    // 6) Hand detection and interaction
+    let prevDist = null, prevAng = null;
+    function detectHands() {
+      if (!model || !triangle) return;
+      model.detect(video).then(predictions => {
+        console.log('Рук обнаружено:', predictions.length);
+
+        // Single hand: move triangle
+        if (predictions.length === 1) {
+          const box = predictions[0].bbox;
+          const nx = (box[0] + box[2] / 2) / video.videoWidth * 2 - 1;
+          const ny = -((box[1] + box[3] / 2) / video.videoHeight * 2 - 1);
+          triangle.position.set(nx * 0.5, ny * 0.5, 0);
+        }
+        // Two hands: scale and rotate
+        else if (predictions.length === 2) {
+          const A = {
+            x: (predictions[0].bbox[0] + predictions[0].bbox[2] / 2) / video.videoWidth,
+            y: (predictions[0].bbox[1] + predictions[0].bbox[3] / 2) / video.videoHeight
+          };
+          const B = {
+            x: (predictions[1].bbox[0] + predictions[1].bbox[2] / 2) / video.videoWidth,
+            y: (predictions[1].bbox[1] + predictions[1].bbox[3] / 2) / video.videoHeight
+          };
+          // Scale
+          const dist = Math.hypot(A.x - B.x, A.y - B.y);
+          if (prevDist !== null) {
+            const sf = dist / prevDist;
+            triangle.scale.multiplyScalar(sf);
+          }
+          prevDist = dist;
+          // Rotation
+          const ang = Math.atan2(B.y - A.y, B.x - A.x);
+          if (prevAng !== null) {
+            triangle.rotation.z += ang - prevAng;
+          }
+          prevAng = ang;
+        } else {
+          prevDist = prevAng = null;
+        }
+        requestAnimationFrame(detectHands);
+      });
+    }
+
+    // 7) Animation loop
+    (function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    })();
+
+    // 8) Handle resize
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
-
-    // 8) Запуск WebXR
-    startXR();
   </script>
 </body>
 </html>
