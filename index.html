@@ -1,91 +1,106 @@
-<!DOCTYPE html><html lang="ru">
+<!DOCTYPE html>
+<html lang="ru">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>AR Three.js + Gestures</title>
-  <style>body{margin:0;overflow:hidden}</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AR + Жесты на three.js</title>
+  <style>
+    html, body { margin:0; padding:0; overflow:hidden; width:100%; height:100%; }
+    #cam {
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
+      object-fit:cover;
+      transform:scaleX(-1);
+    }
+    #three-canvas {
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
+      pointer-events:none;
+    }
+  </style>
 </head>
 <body>
-  <!-- камера на заднем плане -->
-  <video id="video" autoplay playsinline
-         style="position:fixed;inset:0;object-fit:cover;z-index:-1"></video>
+  <video id="cam" autoplay playsinline muted></video>
+  <canvas id="three-canvas"></canvas>
 
-  <!-- холст Three.js поверх -->
-  <canvas id="three" style="position:fixed;inset:0"></canvas>
+  <script type="module">
+    import * as THREE        from 'https://unpkg.com/three@0.152.2/build/three.module.js';
+    import { GLTFLoader }    from 'https://unpkg.com/three@0.152.2/examples/jsm/loaders/GLTFLoader.js';
+    import { Hands }         from 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js';
+    import { Camera as MPCam } from 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.4/camera_utils.js';
 
-<script type="module">
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.162/build/three.module.js';
-import {Hands} from 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
-import {drawConnectors, drawLandmarks} from 'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js';
+    // 1) Камера
+    const video = document.getElementById('cam');
+    navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } })
+      .then(s=> video.srcObject=s)
+      .catch(console.error);
 
-// ---------- Камера ----------
-const video = document.getElementById('video');
-navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
-  .then(stream => video.srcObject = stream);
+    // 2) Three.js
+    const canvas   = document.getElementById('three-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
 
-// ---------- Three.js ----------
-const canvas = document.getElementById('three');
-const renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true});
-renderer.setPixelRatio(devicePixelRatio);
+    const scene  = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 100);
+    camera.position.set(0,0,1);
+    scene.add(new THREE.HemisphereLight(0xffffbb, 0x080820, 1));
 
-const scene  = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.01, 100);
-camera.position.z = 2;
+    // 3) Загрузка модели (положите model.glb рядом с index.html)
+    let model;
+    new GLTFLoader().load('model.glb', gltf => {
+      model = gltf.scene;
+      model.scale.set(0.2,0.2,0.2);
+      scene.add(model);
+    });
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+    // 4) Mediapipe Hands
+    const hands = new Hands({ locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${f}` });
+    hands.setOptions({ maxNumHands:2, minDetectionConfidence:0.7, minTrackingConfidence:0.7 });
+    hands.onResults(onHands);
+    const mpCam = new MPCam(video, {
+      onFrame: async()=> await hands.send({image:video}),
+      width:640, height:480
+    });
+    mpCam.start();
 
-const cube = new THREE.Mesh(
-  new THREE.BoxGeometry(0.4,0.4,0.4),
-  new THREE.MeshStandardMaterial({color:0x6699ff, roughness:0.3, metalness:0.4})
-);
-scene.add(cube);
+    // 5) Жесты
+    let prevDist=null, prevAng=null;
+    function onHands(res) {
+      if(!model) return;
+      const H = res.multiHandLandmarks;
+      if(H.length===1) {
+        const [lm] = H;
+        const d = Math.hypot(lm[4].x-lm[8].x, lm[4].y-lm[8].y);
+        if(d<0.05) {
+          const x = lm[8].x*2-1, y = -(lm[8].y*2-1);
+          model.position.set(x*0.5, y*0.5, 0);
+        }
+      }
+      if(H.length===2) {
+        const [A,B] = [H[0][8], H[1][8]];
+        const dist = Math.hypot(A.x-B.x, A.y-B.y);
+        if(prevDist!=null) model.scale.multiplyScalar(dist/prevDist);
+        prevDist = dist;
+        const ang = Math.atan2(B.y-A.y, B.x-A.x);
+        if(prevAng!=null) model.rotation.z += ang-prevAng;
+        prevAng = ang;
+      }
+      if(H.length===0) { prevDist = prevAng = null; }
+    }
 
-function onResize(){
-  renderer.setSize(innerWidth, innerHeight);
-  camera.aspect = innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-}
-addEventListener('resize', onResize); onResize();
+    // 6) Рендер
+    (function ani(){
+      requestAnimationFrame(ani);
+      renderer.render(scene,camera);
+    })();
 
-// ---------- MediaPipe Hands ----------
-const hands = new Hands({
-  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
-});
-hands.setOptions({
-  selfieMode:false, maxNumHands:1, modelComplexity:1,
-  minDetectionConfidence:0.7, minTrackingConfidence:0.5
-});
-
-let pinch = false, pinchStart = 0, startScale = 1, lastYaw = 0;
-
-hands.onResults(({multiHandLandmarks})=>{
-  if(!multiHandLandmarks?.length) return;
-  const lm = multiHandLandmarks[0];
-
-  // ---------- Pinch → Scale ----------
-  const d = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
-  if(d < 0.05 && !pinch){ pinch=true; pinchStart=d; startScale=cube.scale.x; }
-  if(d > 0.06) pinch=false;
-  if(pinch) cube.scale.setScalar(THREE.MathUtils.clamp(startScale*pinchStart/d,0.2,3));
-
-  // ---------- Palm yaw → Rotation ----------
-  const yaw = Math.atan2(lm[5].x - lm[0].x, lm[5].y - lm[0].y);
-  if(lastYaw){ cube.rotation.y += (yaw - lastYaw)*5; }
-  lastYaw = yaw;
-});
-
-// Вспомогательный canvas (скрытый) для MediaPipe
-const offCanvas = Object.assign(document.createElement('canvas'), {width:640, height:480});
-const offCtx = offCanvas.getContext('2d');
-
-async function loop(){
-  if(video.readyState >= 2){
-    offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
-    await hands.send({image: offCanvas});
-  }
-  renderer.render(scene, camera);
-  requestAnimationFrame(loop);
-}
-loop();
-</script>
-</body></html>
+    // 7) Resize
+    window.addEventListener('resize', ()=>{
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
