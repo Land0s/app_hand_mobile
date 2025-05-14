@@ -1,259 +1,135 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Markerless AR Triangle with Gesture Control</title>
-  <!-- Подключаем Three.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-  <!-- Подключаем TensorFlow.js и Handpose -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AR Triangle with Gesture Control</title>
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
+    body { margin: 0; overflow: hidden; }
+    canvas { width: 100vw; height: 100vh; display: block; }
+    #video { 
+      position: absolute; 
+      top: 0; 
+      left: 0; 
+      width: 100%; 
+      height: 100%; 
+      object-fit: cover; 
+      z-index: -1; 
     }
-    #gesture-info {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      color: white;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 10px;
-      font-family: Arial, sans-serif;
-    }
-    #ar-button {
-      position: absolute;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 10px 20px;
-      background: #007bff;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    #error-message {
-      position: absolute;
-      top: 50px;
-      left: 10px;
-      color: red;
-      background: rgba(255, 255, 255, 0.8);
-      padding: 10px;
-      display: none;
+    #status { 
+      position: absolute; 
+      top: 10px; 
+      left: 10px; 
+      color: white; 
+      background: rgba(0, 0, 0, 0.7); 
+      padding: 5px; 
+      font-family: Arial, sans-serif; 
     }
   </style>
 </head>
 <body>
-  <div id="gesture-info">Gesture: None</div>
-  <div id="error-message"></div>
-  <button id="ar-button">Start AR</button>
-
+  <video id="video" autoplay playsinline></video>
+  <div id="status">Gesture: None</div>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fingerpose@0.1.0/dist/fingerpose.min.js"></script>
   <script>
-    // Three.js переменные
-    let scene, camera, renderer, triangleMesh, reticle;
-    let controller, hitTestSource = null;
-    let isObjectPlaced = false;
-    let handposeModel = null;
-    let video = null;
+    // Three.js setup
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
 
-    // Инициализация сцены
-    function initScene() {
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.xr.enabled = true;
-      document.body.appendChild(renderer.domElement);
+    // Create 3D triangle
+    const geometry = new THREE.BufferGeometry();
+    const vertices = new Float32Array([
+      0, 1, 0,  // Top vertex
+      -1, -1, 0, // Bottom-left
+      1, -1, 0   // Bottom-right
+    ]);
+    const indices = [0, 1, 2];
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setIndex(indices);
+    const material = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
+    const triangle = new THREE.Mesh(geometry, material);
+    scene.add(triangle);
+    camera.position.z = 5;
 
-      // Освещение
-      const light = new THREE.AmbientLight(0xffffff, 0.5);
-      scene.add(light);
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-      directionalLight.position.set(0, 1, 0);
-      scene.add(directionalLight);
+    // Webcam setup
+    const video = document.getElementById('video');
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+      })
+      .catch(err => console.error('Webcam error:', err));
 
-      // Создание треугольника
-      const geometry = new THREE.BufferGeometry();
-      const vertices = new Float32Array([
-        0, 0.5, 0,   // Вершина 1
-        -0.5, -0.5, 0, // Вершина 2
-        0.5, -0.5, 0   // Вершина 3
-      ]);
-      const indices = [0, 1, 2];
-      geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-      geometry.setIndex(indices);
-      const material = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
-      triangleMesh = new THREE.Mesh(geometry, material);
-      triangleMesh.scale.set(0.2, 0.2, 0.2);
-      scene.add(triangleMesh);
-      triangleMesh.visible = false;
+    // Gesture recognition setup
+    const status = document.getElementById('status');
+    let lastGesture = null;
 
-      // Ретикл для выбора позиции
-      const reticleGeometry = new THREE.RingGeometry(0.15, 0.2, 32);
-      const reticleMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-      reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
-      reticle.matrixAutoUpdate = false;
-      reticle.visible = false;
-      scene.add(reticle);
+    // Define custom gestures
+    const GE = window.fingerpose.Gestures;
+    const PinchGesture = new window.fingerpose.GestureDescription('pinch');
+    PinchGesture.addCurl(window.fingerpose.Finger.Thumb, window.fingerpose.FingerCurl.NoCurl);
+    PinchGesture.addCurl(window.fingerpose.Finger.Index, window.fingerpose.FingerCurl.FullCurl);
+    for (let finger of [window.fingerpose.Finger.Middle, window.fingerpose.Finger.Ring, window.fingerpose.Finger.Pinky]) {
+      PinchGesture.addCurl(finger, window.fingerpose.FingerCurl.NoCurl);
     }
 
-    // Инициализация WebXR
-    async function initXR() {
-      if (!navigator.xr) {
-        document.getElementById('error-message').style.display = 'block';
-        document.getElementById('error-message').innerText = 'WebXR not supported on this device';
-        return;
-      }
-
-      try {
-        const session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test']
-        });
-        renderer.xr.setSession(session);
-        document.getElementById('ar-button').style.display = 'none';
-
-        const viewerSpace = await session.requestReferenceSpace('viewer');
-        hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-
-        controller = renderer.xr.getController(0);
-        controller.addEventListener('select', () => {
-          if (reticle.visible && !isObjectPlaced) {
-            triangleMesh.position.copy(reticle.position);
-            triangleMesh.visible = true;
-            isObjectPlaced = true;
-            reticle.visible = false;
-            document.getElementById('gesture-info').innerText = 'Triangle placed. Use gestures to control.';
-          }
-        });
-        scene.add(controller);
-      } catch (e) {
-        document.getElementById('error-message').style.display = 'block';
-        document.getElementById('error-message').innerText = 'Error starting WebXR: ' + e.message;
-      }
+    const RotateGesture = new window.fingerpose.GestureDescription('rotate');
+    for (let finger of window.fingerpose.Finger.all) {
+      RotateGesture.addCurl(finger, window.fingerpose.FingerCurl.NoCurl);
+      RotateGesture.addDirection(finger, window.fingerpose.FingerDirection.DiagonalUpRight, 1.0);
+      RotateGesture.addDirection(finger, window.fingerpose.FingerDirection.DiagonalUpLeft, 0.9);
     }
 
-    // Инициализация Handpose
+    // Load handpose model
     async function initHandpose() {
-      try {
-        handposeModel = await handpose.load();
-        document.getElementById('gesture-info').innerText = 'Handpose model loaded';
-        
-        // Настройка видео для захвата жестов
-        video = document.createElement('video');
-        video.width = window.innerWidth;
-        video.height = window.innerHeight;
-        navigator.mediaDevices.getUserMedia({ video: true })
-          .then(stream => {
-            video.srcObject = stream;
-            video.play();
-            detectHands();
-          })
-          .catch(e => {
-            document.getElementById('error-message').style.display = 'block';
-            document.getElementById('error-message').innerText = 'Error accessing webcam: ' + e.message;
-          });
-      } catch (e) {
-        document.getElementById('error-message').style.display = 'block';
-        document.getElementById('error-message').innerText = 'Error loading Handpose: ' + e.message;
-      }
+      const model = await window.handpose.load();
+      detectGestures(model);
     }
 
-    // Обработка жестов
-    let lastPinch = false;
-    let initialPinchDistance = 0;
-    let initialScale = 0.2;
-    let lastHandX = 0;
-
-    async function detectHands() {
-      if (!handposeModel || !video) return;
-      
-      const predictions = await handposeModel.estimateHands(video);
-      if (!isObjectPlaced || !predictions || predictions.length === 0) {
-        document.getElementById('gesture-info').innerText = 'Gesture: None';
-        setTimeout(detectHands, 100);
-        return;
-      }
-
-      const landmarks = predictions[0].landmarks;
-      const thumbTip = landmarks[4]; // Кончик большого пальца
-      const indexTip = landmarks[8]; // Кончик указательного пальца
-      const wrist = landmarks[0]; // Запястье
-
-      // Нормализация координат (Handpose возвращает пиксельные координаты)
-      const thumbX = thumbTip[0] / window.innerWidth;
-      const thumbY = thumbTip[1] / window.innerHeight;
-      const indexX = indexTip[0] / window.innerWidth;
-      const indexY = indexTip[1] / window.innerHeight;
-      const wristX = wrist[0] / window.innerWidth;
-
-      // Сжатие пальцев
-      const pinchDistance = Math.sqrt(
-        Math.pow(thumbX - indexX, 2) + Math.pow(thumbY - indexY, 2)
-      );
-      const isPinching = pinchDistance < 0.05;
-      if (isPinching && !lastPinch) {
-        initialPinchDistance = pinchDistance;
-        initialScale = triangleMesh.scale.x;
-      }
-      if (isPinching) {
-        const scaleFactor = pinchDistance / initialPinchDistance;
-        const newScale = Math.max(0.1, Math.min(2, initialScale * scaleFactor));
-        triangleMesh.scale.set(newScale, newScale, newScale);
-        document.getElementById('gesture-info').innerText = `Gesture: Pinch (Scale: ${newScale.toFixed(2)})`;
-      }
-
-      // Поворот ладони
-      const palmAngle = Math.atan2(indexTip[1] - wrist[1], indexTip[0] - wrist[0]);
-      triangleMesh.rotation.y = palmAngle;
-
-      // Перемещение по горизонтали
-      const handX = wristX;
-      if (lastHandX !== 0) {
-        const deltaX = (handX - lastHandX) * 0.5;
-        triangleMesh.position.x += deltaX;
-      }
-      lastHandX = handX;
-
-      lastPinch = isPinching;
-
-      if (!isPinching) {
-        document.getElementById('gesture-info').innerText = `Gesture: Rotate (Angle: ${(palmAngle * 180 / Math.PI).toFixed(2)}°)`;
-      }
-
-      setTimeout(detectHands, 100);
-    }
-
-    // Анимация и hit-test
-    function animate() {
-      renderer.setAnimationLoop((timestamp, frame) => {
-        if (!frame) return;
-
-        if (hitTestSource && !isObjectPlaced) {
-          const hitTestResults = frame.getHitTestResults(hitTestSource);
-          if (hitTestResults.length) {
-            const hit = hitTestResults[0];
-            const hitPose = hit.getPose(renderer.xr.getReferenceSpace());
-            reticle.visible = true;
-            reticle.matrix.fromArray(hitPose.transform.matrix);
+    async function detectGestures(model) {
+      if (video.readyState === 4) {
+        const predictions = await model.estimateHands(video);
+        if (predictions.length > 0) {
+          const gestureEstimator = new window.fingerpose.GestureEstimator([PinchGesture, RotateGesture]);
+          const gesture = gestureEstimator.estimate(predictions[0].landmarks, 8);
+          if (gesture.gestures.length > 0) {
+            const bestGesture = gesture.gestures.reduce((a, b) => a.score > b.score ? a : b);
+            lastGesture = bestGesture.name;
+            status.textContent = `Gesture: ${lastGesture}`;
+            // Control triangle
+            if (lastGesture === 'pinch') {
+              triangle.scale.multiplyScalar(0.99); // Scale down
+            } else if (lastGesture === 'rotate') {
+              triangle.rotation.z += 0.05; // Rotate
+            }
           } else {
-            reticle.visible = false;
+            status.textContent = 'Gesture: None';
           }
         }
-
-        renderer.render(scene, camera);
-      });
+      }
+      requestAnimationFrame(() => detectGestures(model));
     }
 
-    // Инициализация
-    initScene();
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Start
     initHandpose();
     animate();
-
-    // Кнопка для запуска AR
-    document.getElementById('ar-button').addEventListener('click', initXR);
   </script>
 </body>
 </html>
