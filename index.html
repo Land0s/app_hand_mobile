@@ -1,32 +1,91 @@
-<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html><html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AR Gesture Control</title>
-  <style>
-    body { margin: 0; overflow: hidden; }
-    canvas { display: block; }
-    #ar-button {
-      position: absolute;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 10px 20px;
-      background: #007AFF;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      font-size: 16px;
-      cursor: pointer;
-    }
-  </style>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>AR Three.js + Gestures</title>
+  <style>body{margin:0;overflow:hidden}</style>
 </head>
 <body>
-  <!-- Кнопка для входа в AR (добавим её через JS) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
-  <script src="app.js"></script>
-</body>
-</html>
+  <!-- камера на заднем плане -->
+  <video id="video" autoplay playsinline
+         style="position:fixed;inset:0;object-fit:cover;z-index:-1"></video>
+
+  <!-- холст Three.js поверх -->
+  <canvas id="three" style="position:fixed;inset:0"></canvas>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.162/build/three.module.js';
+import {Hands} from 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
+import {drawConnectors, drawLandmarks} from 'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js';
+
+// ---------- Камера ----------
+const video = document.getElementById('video');
+navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+  .then(stream => video.srcObject = stream);
+
+// ---------- Three.js ----------
+const canvas = document.getElementById('three');
+const renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true});
+renderer.setPixelRatio(devicePixelRatio);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.01, 100);
+camera.position.z = 2;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+
+const cube = new THREE.Mesh(
+  new THREE.BoxGeometry(0.4,0.4,0.4),
+  new THREE.MeshStandardMaterial({color:0x6699ff, roughness:0.3, metalness:0.4})
+);
+scene.add(cube);
+
+function onResize(){
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', onResize); onResize();
+
+// ---------- MediaPipe Hands ----------
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
+hands.setOptions({
+  selfieMode:false, maxNumHands:1, modelComplexity:1,
+  minDetectionConfidence:0.7, minTrackingConfidence:0.5
+});
+
+let pinch = false, pinchStart = 0, startScale = 1, lastYaw = 0;
+
+hands.onResults(({multiHandLandmarks})=>{
+  if(!multiHandLandmarks?.length) return;
+  const lm = multiHandLandmarks[0];
+
+  // ---------- Pinch → Scale ----------
+  const d = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+  if(d < 0.05 && !pinch){ pinch=true; pinchStart=d; startScale=cube.scale.x; }
+  if(d > 0.06) pinch=false;
+  if(pinch) cube.scale.setScalar(THREE.MathUtils.clamp(startScale*pinchStart/d,0.2,3));
+
+  // ---------- Palm yaw → Rotation ----------
+  const yaw = Math.atan2(lm[5].x - lm[0].x, lm[5].y - lm[0].y);
+  if(lastYaw){ cube.rotation.y += (yaw - lastYaw)*5; }
+  lastYaw = yaw;
+});
+
+// Вспомогательный canvas (скрытый) для MediaPipe
+const offCanvas = Object.assign(document.createElement('canvas'), {width:640, height:480});
+const offCtx = offCanvas.getContext('2d');
+
+async function loop(){
+  if(video.readyState >= 2){
+    offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
+    await hands.send({image: offCanvas});
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body></html>
