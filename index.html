@@ -43,8 +43,15 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/fingerpose@0.1.0/dist/fingerpose.min.js"></script>
+  <script src="https://unpkg.com/fingerpose@0.1.0/dist/fingerpose.min.js"></script>
   <script>
+    // Fallback for fingerpose if CDN fails
+    if (!window.fingerpose) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/fingerpose@0.1.0/dist/fingerpose.min.js';
+      document.head.appendChild(script);
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       const errorDiv = document.getElementById('error');
 
@@ -56,7 +63,13 @@
 
       // Check if fingerpose is loaded
       if (typeof window.fingerpose === 'undefined') {
-        errorDiv.textContent = 'Error: fingerpose failed to load. Please check your network or CDN.';
+        errorDiv.textContent = 'Error: fingerpose failed to load. Please check your network or CDN. Try hosting fingerpose.min.js locally.';
+        return;
+      }
+
+      // Check if handpose is loaded
+      if (!window.handpose) {
+        errorDiv.textContent = 'Error: Handpose model failed to load. Please check your network or CDN.';
         return;
       }
 
@@ -114,10 +127,6 @@
 
       // Load handpose model
       async function initHandpose() {
-        if (!window.handpose) {
-          errorDiv.textContent = 'Error: Handpose model failed to load.';
-          return;
-        }
         try {
           const model = await window.handpose.load();
           detectGestures(model);
@@ -171,6 +180,15 @@
       initHandpose();
       animate();
     });
+
+    /*
+    To host fingerpose locally:
+    1. Download fingerpose.min.js from https://cdn.jsdelivr.net/npm/fingerpose@0.1.0/dist/fingerpose.min.js
+    2. Place it in the same directory as this HTML file.
+    3. Replace the fingerpose <script> tag with:
+       <script src="./fingerpose.min.js"></script>
+    4. Serve the files using a local server (e.g., Python: `python -m http.server 8000`).
+    */
   </script>
 </body>
 </html>
