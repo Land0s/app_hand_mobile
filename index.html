@@ -6,11 +6,9 @@
   <title>Markerless AR Triangle with Gesture Control</title>
   <!-- Подключаем Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-  <!-- Подключаем Handsfree.js CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsfree@8.5.1/dist/handsfree.css">
-  <!-- Подключаем Handsfree.js с fallback на локальную копию -->
-  <script src="https://cdn.jsdelivr.net/npm/handsfree@8.5.1/dist/handsfree.js"></script>
-  <script>window.Handsfree || document.write('<script src="assets/handsfree.js"></script>')</script>
+  <!-- Подключаем TensorFlow.js и Handpose -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -54,32 +52,12 @@
   <button id="ar-button">Start AR</button>
 
   <script>
-    // Проверка загрузки Handsfree.js
-    if (typeof Handsfree === 'undefined') {
-      document.getElementById('error-message').style.display = 'block';
-      document.getElementById('error-message').innerText = 'Error: Handsfree.js failed to load. Ensure the local copy is in the "assets" folder.';
-      throw new Error('Handsfree.js is not loaded');
-    }
-
-    // Инициализация Handsfree.js
-    let handsfree = null;
-    try {
-      handsfree = new Handsfree({
-        hands: true,
-        setup: {
-          video: { width: window.innerWidth, height: window.innerHeight }
-        }
-      });
-      handsfree.start();
-    } catch (e) {
-      document.getElementById('error-message').style.display = 'block';
-      document.getElementById('error-message').innerText = 'Error initializing Handsfree.js: ' + e.message;
-    }
-
     // Three.js переменные
     let scene, camera, renderer, triangleMesh, reticle;
     let controller, hitTestSource = null;
     let isObjectPlaced = false;
+    let handposeModel = null;
+    let video = null;
 
     // Инициализация сцены
     function initScene() {
@@ -147,6 +125,7 @@
             triangleMesh.visible = true;
             isObjectPlaced = true;
             reticle.visible = false;
+            document.getElementById('gesture-info').innerText = 'Triangle placed. Use gestures to control.';
           }
         });
         scene.add(controller);
@@ -156,34 +135,65 @@
       }
     }
 
+    // Инициализация Handpose
+    async function initHandpose() {
+      try {
+        handposeModel = await handpose.load();
+        document.getElementById('gesture-info').innerText = 'Handpose model loaded';
+        
+        // Настройка видео для захвата жестов
+        video = document.createElement('video');
+        video.width = window.innerWidth;
+        video.height = window.innerHeight;
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then(stream => {
+            video.srcObject = stream;
+            video.play();
+            detectHands();
+          })
+          .catch(e => {
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('error-message').innerText = 'Error accessing webcam: ' + e.message;
+          });
+      } catch (e) {
+        document.getElementById('error-message').style.display = 'block';
+        document.getElementById('error-message').innerText = 'Error loading Handpose: ' + e.message;
+      }
+    }
+
     // Обработка жестов
     let lastPinch = false;
     let initialPinchDistance = 0;
     let initialScale = 0.2;
     let lastHandX = 0;
 
-    function handleGestures() {
-      if (!handsfree || !handsfree.data?.hands || !isObjectPlaced) {
+    async function detectHands() {
+      if (!handposeModel || !video) return;
+      
+      const predictions = await handposeModel.estimateHands(video);
+      if (!isObjectPlaced || !predictions || predictions.length === 0) {
         document.getElementById('gesture-info').innerText = 'Gesture: None';
+        setTimeout(detectHands, 100);
         return;
       }
 
-      const hands = handsfree.data.hands;
-      if (!hands.landmarks || hands.landmarks.length === 0) {
-        document.getElementById('gesture-info').innerText = 'Gesture: None';
-        return;
-      }
+      const landmarks = predictions[0].landmarks;
+      const thumbTip = landmarks[4]; // Кончик большого пальца
+      const indexTip = landmarks[8]; // Кончик указательного пальца
+      const wrist = landmarks[0]; // Запястье
 
-      const landmarks = hands.landmarks[0];
-      const thumbTip = landmarks[4];
-      const indexTip = landmarks[8];
-      const wrist = landmarks[0];
+      // Нормализация координат (Handpose возвращает пиксельные координаты)
+      const thumbX = thumbTip[0] / window.innerWidth;
+      const thumbY = thumbTip[1] / window.innerHeight;
+      const indexX = indexTip[0] / window.innerWidth;
+      const indexY = indexTip[1] / window.innerHeight;
+      const wristX = wrist[0] / window.innerWidth;
 
+      // Сжатие пальцев
       const pinchDistance = Math.sqrt(
-        Math.pow(thumbTip.x - indexTip.x, 2) +
-        Math.pow(thumbTip.y - indexTip.y, 2)
+        Math.pow(thumbX - indexX, 2) + Math.pow(thumbY - indexY, 2)
       );
-      const isPinching = pinchDistance < 0.1;
+      const isPinching = pinchDistance < 0.05;
       if (isPinching && !lastPinch) {
         initialPinchDistance = pinchDistance;
         initialScale = triangleMesh.scale.x;
@@ -195,10 +205,12 @@
         document.getElementById('gesture-info').innerText = `Gesture: Pinch (Scale: ${newScale.toFixed(2)})`;
       }
 
-      const palmAngle = Math.atan2(indexTip.y - wrist.y, indexTip.x - wrist.x);
+      // Поворот ладони
+      const palmAngle = Math.atan2(indexTip[1] - wrist[1], indexTip[0] - wrist[0]);
       triangleMesh.rotation.y = palmAngle;
 
-      const handX = wrist.x;
+      // Перемещение по горизонтали
+      const handX = wristX;
       if (lastHandX !== 0) {
         const deltaX = (handX - lastHandX) * 0.5;
         triangleMesh.position.x += deltaX;
@@ -210,6 +222,8 @@
       if (!isPinching) {
         document.getElementById('gesture-info').innerText = `Gesture: Rotate (Angle: ${(palmAngle * 180 / Math.PI).toFixed(2)}°)`;
       }
+
+      setTimeout(detectHands, 100);
     }
 
     // Анимация и hit-test
@@ -229,13 +243,13 @@
           }
         }
 
-        handleGestures();
         renderer.render(scene, camera);
       });
     }
 
     // Инициализация
     initScene();
+    initHandpose();
     animate();
 
     // Кнопка для запуска AR
