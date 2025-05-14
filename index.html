@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AR + Жесты на TFJS + three.js</title>
+  <title>AR + Жесты (TFJS + three.js)</title>
   <style>
     html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }
     #cam {
@@ -19,15 +19,11 @@
     }
   </style>
 
-  <!-- VConsole для отладки на iPhone -->
+  <!-- VConsole: будет показывать логи прямо на экране iPhone -->
   <script src="https://unpkg.com/vconsole@3.15.0/dist/vconsole.min.js"></script>
   <script> new VConsole(); </script>
 
-  <!-- three.js и GLTFLoader -->
-  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
-
-  <!-- TensorFlow.js и Hand Pose Detection -->
+  <!-- TFJS и Hand Pose Detection (как UMD, чтобы достать глобалы tf и handPoseDetection) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.12.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection@0.0.7/dist/hand-pose-detection.js"></script>
 </head>
@@ -35,110 +31,107 @@
   <video id="cam" autoplay playsinline muted></video>
   <canvas id="three-canvas"></canvas>
 
-  <script>
-  (async ()=>{
+  <script type="module">
+    // 1) Импорт three.js как ES-модули
+    import * as THREE       from 'https://unpkg.com/three@0.152.2/build/three.module.js';
+    import { GLTFLoader }   from 'https://unpkg.com/three@0.152.2/examples/jsm/loaders/GLTFLoader.js';
 
-    // 1️⃣ Запускаем камеру
-    const video = document.getElementById('cam');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
-      console.log('🎥 Камера запущена');
-      video.srcObject = stream;
-    } catch(err) {
-      console.error('❌ Нет доступа к камере', err);
-      alert('Невозможно включить камеру:\n'+err.message);
-      return;
-    }
-
-    // 2️⃣ three.js сцена
-    const canvas   = document.getElementById('three-canvas');
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    // для отладки: полупрозрачный красный фон
-    renderer.setClearColor(0xff0000, 0.3);
-
-    const scene  = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 100);
-    camera.position.set(0,0,1);
-    scene.add(new THREE.HemisphereLight(0xffffbb, 0x080820, 1));
-
-    // 3️⃣ Загрузка 3D-модели
-    let model = null;
-    new THREE.GLTFLoader().load(
-      'model.glb',
-      gltf => {
-        console.log('✅ Модель загружена');
-        model = gltf.scene;
-        model.scale.set(0.2,0.2,0.2);
-        scene.add(model);
-      },
-      xhr => {
-        if(xhr.total) console.log(`Загружено ${(xhr.loaded/xhr.total*100).toFixed(1)}%`);
-      },
-      err => {
-        console.error('❌ Ошибка загрузки model.glb', err);
-        alert('Не удалось загрузить модель:\n'+err.message);
+    (async ()=> {
+      // 2) Камера
+      const video = document.getElementById('cam');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
+        console.log('🎥 Камера запущена');
+        video.srcObject = stream;
+      } catch(err) {
+        console.error('Нет доступа к камере:', err);
+        alert('Не удалось включить камеру:\n' + err.message);
+        return;
       }
-    );
 
-    // 4️⃣ Инициализация детектора жестов
-    await tf.setBackend('webgl'); // WebGL-бэкенд в Safari
-    const modelName    = handPoseDetection.SupportedModels.MediaPipeHands;
-    const detectorOpts = { runtime: 'tfjs', modelType: 'full' };
-    const detector     = await handPoseDetection.createDetector(modelName, detectorOpts);
-    console.log('🤖 Детектор инициализирован (tfjs)');
+      // 3) three.js сцена
+      const canvas   = document.getElementById('three-canvas');
+      const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setClearColor(0xff0000, 0.3); // отладочный фон
 
-    // 5️⃣ Обработка кадров
-    let prevDist = null, prevAng = null;
-    async function processFrame() {
-      if (!video.readyState || video.paused) return;
-      const hands = await detector.estimateHands(video, { flipHorizontal: true });
-      // hands — массив из 0,1 или 2 объектов
-      if (model && hands.length) {
-        // Pinch одной рукой → перемещение
-        if (hands.length === 1) {
-          const kp = hands[0].keypoints.find(p=>p.name==='index_finger_tip');
-          const thumb = hands[0].keypoints.find(p=>p.name==='thumb_tip');
-          const d = Math.hypot(kp.x - thumb.x, kp.y - thumb.y);
-          if (d < 40) { // порог в пикселях, можно подкорректировать
-            const nx = (kp.x / video.videoWidth)*2 - 1;
-            const ny = -(kp.y / video.videoHeight)*2 + 1;
-            model.position.set(nx*0.5, ny*0.5, 0);
+      const scene  = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 100);
+      camera.position.set(0,0,1);
+      scene.add( new THREE.HemisphereLight(0xffffbb, 0x080820, 1) );
+
+      // 4) Загрузка модели
+      let model = null;
+      new GLTFLoader().load(
+        'model.glb',
+        gltf => {
+          console.log('✅ Модель загружена');
+          model = gltf.scene;
+          model.scale.set(0.2,0.2,0.2);
+          scene.add(model);
+        },
+        xhr => {
+          if(xhr.total) console.log(`Загружено ${(xhr.loaded/xhr.total*100).toFixed(1)}%`);
+        },
+        err => {
+          console.error('Ошибка загрузки model.glb:', err);
+          alert('Не удалось загрузить модель:\n' + err.message);
+        }
+      );
+
+      // 5) Инициализация TFJS-детектора
+      await tf.setBackend('webgl');
+      const detector = await handPoseDetection.createDetector(
+        handPoseDetection.SupportedModels.MediaPipeHands,
+        { runtime:'tfjs', modelType:'full' }
+      );
+      console.log('🤖 Детектор готов');
+
+      // 6) Обработка кадров и жестов
+      let prevDist = null, prevAng = null;
+      async function detect() {
+        if(video.readyState >= 2 && model) {
+          const hands = await detector.estimateHands(video, { flipHorizontal:true });
+          if(hands.length === 1) {
+            const tip = hands[0].keypoints.find(p=>p.name==='index_finger_tip');
+            const thumb= hands[0].keypoints.find(p=>p.name==='thumb_tip');
+            const d = Math.hypot(tip.x-thumb.x, tip.y-thumb.y);
+            if(d < 40) {
+              const nx = (tip.x/video.videoWidth)*2 - 1;
+              const ny = -(tip.y/video.videoHeight)*2 + 1;
+              model.position.set(nx*0.5, ny*0.5, 0);
+            }
+          } else if(hands.length === 2) {
+            const A = hands[0].keypoints.find(p=>p.name==='index_finger_tip');
+            const B = hands[1].keypoints.find(p=>p.name==='index_finger_tip');
+            const dist = Math.hypot(A.x-B.x, A.y-B.y);
+            if(prevDist !== null) model.scale.multiplyScalar(dist/prevDist);
+            prevDist = dist;
+            const ang = Math.atan2(B.y-A.y, B.x-A.x);
+            if(prevAng !== null) model.rotation.z += ang - prevAng;
+            prevAng = ang;
+          } else {
+            prevDist = prevAng = null;
           }
         }
-        // Две руки → масштаб + вращение
-        else if (hands.length===2) {
-          const a = hands[0].keypoints.find(p=>p.name==='index_finger_tip');
-          const b = hands[1].keypoints.find(p=>p.name==='index_finger_tip');
-          const dist = Math.hypot(a.x-b.x, a.y-b.y);
-          if (prevDist!=null) model.scale.multiplyScalar(dist/prevDist);
-          prevDist = dist;
-          const ang = Math.atan2(b.y - a.y, b.x - a.x);
-          if (prevAng!=null) model.rotation.z += ang - prevAng;
-          prevAng = ang;
-        } else {
-          prevDist = prevAng = null;
-        }
       }
-    }
 
-    // 6️⃣ Анимация
-    function animate(){
-      requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-      processFrame();
-    }
-    animate();
+      // 7) Рендер + детекция в цикле
+      function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+        detect();
+      }
+      animate();
 
-    // 7️⃣ Ресайз
-    window.addEventListener('resize', ()=>{
-      camera.aspect = window.innerWidth/window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
-  })();
+      // 8) Ресайз
+      window.addEventListener('resize', ()=>{
+        camera.aspect = window.innerWidth/window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    })();
   </script>
 </body>
 </html>
