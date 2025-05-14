@@ -3,23 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AR Triangle with Gesture Control</title>
-  <!-- Подключаем A-Frame для AR -->
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <!-- Подключаем AR.js для маркерного AR -->
-  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
-  <!-- Подключаем Three.js для создания треугольника -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- Подключаем Handsfree.js для отслеживания жестов -->
+  <title>Markerless AR Triangle with Gesture Control</title>
+  <!-- Подключаем Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <!-- Подключаем Handsfree.js -->
   <script src="https://unpkg.com/handsfree@8.5.1/dist/handsfree.js"></script>
   <style>
     body {
       margin: 0;
       overflow: hidden;
-    }
-    #ar-scene {
-      width: 100vw;
-      height: 100vh;
     }
     #gesture-info {
       position: absolute;
@@ -30,23 +22,23 @@
       padding: 10px;
       font-family: Arial, sans-serif;
     }
+    #ar-button {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
-  <!-- Контейнер для отображения информации о жестах -->
   <div id="gesture-info">Gesture: None</div>
-  <!-- A-Frame сцена для AR -->
-  <a-scene id="ar-scene" embedded arjs="sourceType: webcam; debugUIEnabled: false;">
-    <!-- Камера -->
-    <a-camera position="0 0 0"></a-camera>
-    <!-- Маркер Hiro для позиционирования треугольника -->
-    <a-marker preset="hiro">
-      <!-- Сущность для треугольника -->
-      <a-entity id="triangle" position="0 0 0" scale="0.5 0.5 0.5">
-        <!-- Геометрия треугольника создается в коде -->
-      </a-entity>
-    </a-marker>
-  </a-scene>
+  <button id="ar-button">Start AR</button>
 
   <script>
     // Инициализация Handsfree.js
@@ -58,90 +50,130 @@
     });
     handsfree.start();
 
-    // Получаем сущность треугольника
-    const triangleEntity = document.getElementById('triangle');
-    let scene, renderer, camera, triangleMesh;
+    // Three.js переменные
+    let scene, camera, renderer, triangleMesh, reticle;
+    let controller, hitTestSource = null;
+    let isObjectPlaced = false;
 
-    // Создаем 3D-треугольник с помощью Three.js
-    function initTriangle() {
+    // Инициализация сцены
+    function initScene() {
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-      renderer = new THREE.WebGLRenderer({ alpha: true });
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
 
-      // Создаем геометрию треугольника
+      // Освещение
+      const light = new THREE.AmbientLight(0xffffff, 0.5);
+      scene.add(light);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      directionalLight.position.set(0, 1, 0);
+      scene.add(directionalLight);
+
+      // Создание треугольника
       const geometry = new THREE.BufferGeometry();
       const vertices = new Float32Array([
-        0, 1, 0,   // Вершина 1
-        -1, -1, 0, // Вершина 2
-        1, -1, 0   // Вершина 3
+        0, 0.5, 0,   // Вершина 1
+        -0.5, -0.5, 0, // Вершина 2
+        0.5, -0.5, 0   // Вершина 3
       ]);
       const indices = [0, 1, 2];
       geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
       geometry.setIndex(indices);
       const material = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
       triangleMesh = new THREE.Mesh(geometry, material);
+      triangleMesh.scale.set(0.2, 0.2, 0.2); // Начальный масштаб
       scene.add(triangleMesh);
+      triangleMesh.visible = false; // Скрываем до размещения
 
-      // Привязываем Three.js объект к A-Frame сущности
-      triangleEntity.object3D.add(triangleMesh);
+      // Ретикл для выбора позиции
+      const reticleGeometry = new THREE.RingGeometry(0.15, 0.2, 32);
+      const reticleMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+      reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false;
+      scene.add(reticle);
     }
 
-    // Инициализация треугольника
-    initTriangle();
+    // Инициализация WebXR
+    async function initXR() {
+      if (!navigator.xr) {
+        alert('WebXR not supported on this device');
+        return;
+      }
 
-    // Переменные для отслеживания жестов
-    let lastPinch = false;
-    let initialPinchDistance = 0;
-    let initialScale = 0.5;
-    let lastHandX = 0;
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test']
+      });
+
+      renderer.xr.setSession(session);
+      document.getElementById('ar-button').style.display = 'none';
+
+      // Инициализация hit-test
+      const viewerSpace = await session.requestReferenceSpace('viewer');
+      hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+
+      // Контроллер для выбора позиции
+      controller = renderer.xr.getController(0);
+      controller.addEventListener('select', () => {
+        if (reticle.visible && !isObjectPlaced) {
+          triangleMesh.position.copy(reticle.position);
+          triangleMesh.visible = true;
+          isObjectPlaced = true;
+          reticle.visible = false;
+        }
+      });
+      scene.add(controller);
+    }
 
     // Обработка жестов
+    let lastPinch = false;
+    let initialPinchDistance = 0;
+    let initialScale = 0.2;
+    let lastHandX = 0;
+
     function handleGestures() {
       const hands = handsfree.data?.hands;
-      if (!hands || !hands.landmarks || hands.landmarks.length === 0) {
+      if (!hands || !hands.landmarks || hands.landmarks.length === 0 || !isObjectPlaced) {
         document.getElementById('gesture-info').innerText = 'Gesture: None';
         return;
       }
 
-      const landmarks = hands.landmarks[0]; // Берем первую руку
-      const thumbTip = landmarks[4]; // Кончик большого пальца
-      const indexTip = landmarks[8]; // Кончик указательного пальца
-      const wrist = landmarks[0]; // Запястье
+      const landmarks = hands.landmarks[0];
+      const thumbTip = landmarks[4];
+      const indexTip = landmarks[8];
+      const wrist = landmarks[0];
 
-      // Рассчитываем расстояние между большим и указательным пальцем (pinch)
+      // Сжатие пальцев
       const pinchDistance = Math.sqrt(
         Math.pow(thumbTip.x - indexTip.x, 2) +
         Math.pow(thumbTip.y - indexTip.y, 2)
       );
-
-      // Определяем жест сжатия (pinch)
-      const isPinching = pinchDistance < 0.1; // Порог для сжатия
+      const isPinching = pinchDistance < 0.1;
       if (isPinching && !lastPinch) {
         initialPinchDistance = pinchDistance;
-        initialScale = triangleEntity.getAttribute('scale').x;
+        initialScale = triangleMesh.scale.x;
       }
       if (isPinching) {
         const scaleFactor = pinchDistance / initialPinchDistance;
         const newScale = initialScale * scaleFactor;
-        triangleEntity.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
+        triangleMesh.scale.set(newScale, newScale, newScale);
         document.getElementById('gesture-info').innerText = `Gesture: Pinch (Scale: ${newScale.toFixed(2)})`;
       }
 
-      // Определяем поворот ладони (по углу запястья)
+      // Поворот ладони
       const palmAngle = Math.atan2(indexTip.y - wrist.y, indexTip.x - wrist.x);
       triangleMesh.rotation.y = palmAngle;
 
       // Перемещение по горизонтали
       const handX = wrist.x;
       if (lastHandX !== 0) {
-        const deltaX = (handX - lastHandX) * 2; // Чувствительность перемещения
-        const currentPosition = triangleEntity.getAttribute('position');
-        triangleEntity.setAttribute('position', `${currentPosition.x + deltaX} ${currentPosition.y} ${currentPosition.z}`);
+        const deltaX = (handX - lastHandX) * 0.5;
+        triangleMesh.position.x += deltaX;
       }
       lastHandX = handX;
 
-      // Обновляем состояние сжатия
       lastPinch = isPinching;
 
       if (!isPinching) {
@@ -149,13 +181,34 @@
       }
     }
 
-    // Запускаем обработку жестов в цикле
+    // Анимация и hit-test
     function animate() {
-      requestAnimationFrame(animate);
-      handleGestures();
-      renderer.render(scene, camera);
+      renderer.setAnimationLoop((timestamp, frame) => {
+        if (!frame) return;
+
+        if (hitTestSource && !isObjectPlaced) {
+          const hitTestResults = frame.getHitTestResults(hitTestSource);
+          if (hitTestResults.length) {
+            const hit = hitTestResults[0];
+            const hitPose = hit.getPose(renderer.xr.getReferenceSpace());
+            reticle.visible = true;
+            reticle.matrix.fromArray(hitPose.transform.matrix);
+          } else {
+            reticle.visible = false;
+          }
+        }
+
+        handleGestures();
+        renderer.render(scene, camera);
+      });
     }
+
+    // Инициализация
+    initScene();
     animate();
+
+    // Кнопка для запуска AR
+    document.getElementById('ar-button').addEventListener('click', initXR);
   </script>
 </body>
 </html>
