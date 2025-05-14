@@ -25,111 +25,135 @@
       padding: 5px; 
       font-family: Arial, sans-serif; 
     }
+    #error { 
+      position: absolute; 
+      top: 50px; 
+      left: 10px; 
+      color: red; 
+      background: rgba(0, 0, 0, 0.7); 
+      padding: 5px; 
+      font-family: Arial, sans-serif; 
+    }
   </style>
 </head>
 <body>
   <video id="video" autoplay playsinline></video>
   <div id="status">Gesture: None</div>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.min.js"></script>
+  <div id="error"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fingerpose@0.1.0/dist/fingerpose.min.js"></script>
   <script>
-    // Three.js setup
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
+    window.addEventListener('DOMContentLoaded', () => {
+      // Check if Three.js is loaded
+      if (typeof THREE === 'undefined') {
+        document.getElementById('error').textContent = 'Error: Three.js failed to load. Please check your network or CDN.';
+        return;
+      }
 
-    // Create 3D triangle
-    const geometry = new THREE.BufferGeometry();
-    const vertices = new Float32Array([
-      0, 1, 0,  // Top vertex
-      -1, -1, 0, // Bottom-left
-      1, -1, 0   // Bottom-right
-    ]);
-    const indices = [0, 1, 2];
-    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-    geometry.setIndex(indices);
-    const material = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
-    const triangle = new THREE.Mesh(geometry, material);
-    scene.add(triangle);
-    camera.position.z = 5;
+      // Three.js setup
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
 
-    // Webcam setup
-    const video = document.getElementById('video');
-    navigator.mediaDevices.getUserMedia({ video: true })
-      .then(stream => {
-        video.srcObject = stream;
-      })
-      .catch(err => console.error('Webcam error:', err));
+      // Create 3D triangle
+      const geometry = new THREE.BufferGeometry();
+      const vertices = new Float32Array([
+        0, 1, 0,  // Top vertex
+        -1, -1, 0, // Bottom-left
+        1, -1, 0   // Bottom-right
+      ]);
+      const indices = [0, 1, 2];
+      geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+      geometry.setIndex(indices);
+      const material = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
+      const triangle = new THREE.Mesh(geometry, material);
+      scene.add(triangle);
+      camera.position.z = 5;
 
-    // Gesture recognition setup
-    const status = document.getElementById('status');
-    let lastGesture = null;
+      // Webcam setup
+      const video = document.getElementById('video');
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          video.srcObject = stream;
+        })
+        .catch(err => {
+          document.getElementById('error').textContent = 'Webcam error: ' + err.message;
+        });
 
-    // Define custom gestures
-    const GE = window.fingerpose.Gestures;
-    const PinchGesture = new window.fingerpose.GestureDescription('pinch');
-    PinchGesture.addCurl(window.fingerpose.Finger.Thumb, window.fingerpose.FingerCurl.NoCurl);
-    PinchGesture.addCurl(window.fingerpose.Finger.Index, window.fingerpose.FingerCurl.FullCurl);
-    for (let finger of [window.fingerpose.Finger.Middle, window.fingerpose.Finger.Ring, window.fingerpose.Finger.Pinky]) {
-      PinchGesture.addCurl(finger, window.fingerpose.FingerCurl.NoCurl);
-    }
+      // Gesture recognition setup
+      const status = document.getElementById('status');
+      let lastGesture = null;
 
-    const RotateGesture = new window.fingerpose.GestureDescription('rotate');
-    for (let finger of window.fingerpose.Finger.all) {
-      RotateGesture.addCurl(finger, window.fingerpose.FingerCurl.NoCurl);
-      RotateGesture.addDirection(finger, window.fingerpose.FingerDirection.DiagonalUpRight, 1.0);
-      RotateGesture.addDirection(finger, window.fingerpose.FingerDirection.DiagonalUpLeft, 0.9);
-    }
+      // Define custom gestures
+      const GE = window.fingerpose.Gestures;
+      const PinchGesture = new window.fingerpose.GestureDescription('pinch');
+      PinchGesture.addCurl(window.fingerpose.Finger.Thumb, window.fingerpose.FingerCurl.NoCurl);
+      PinchGesture.addCurl(window.fingerpose.Finger.Index, window.fingerpose.FingerCurl.FullCurl);
+      for (let finger of [window.fingerpose.Finger.Middle, window.fingerpose.Finger.Ring, window.fingerpose.Finger.Pinky]) {
+        PinchGesture.addCurl(finger, window.fingerpose.FingerCurl.NoCurl);
+      }
 
-    // Load handpose model
-    async function initHandpose() {
-      const model = await window.handpose.load();
-      detectGestures(model);
-    }
+      const RotateGesture = new window.fingerpose.GestureDescription('rotate');
+      for (let finger of window.fingerpose.Finger.all) {
+        RotateGesture.addCurl(finger, window.fingerpose.FingerCurl.NoCurl);
+        RotateGesture.addDirection(finger, window.fingerpose.FingerDirection.DiagonalUpRight, 1.0);
+        RotateGesture.addDirection(finger, window.fingerpose.FingerDirection.DiagonalUpLeft, 0.9);
+      }
 
-    async function detectGestures(model) {
-      if (video.readyState === 4) {
-        const predictions = await model.estimateHands(video);
-        if (predictions.length > 0) {
-          const gestureEstimator = new window.fingerpose.GestureEstimator([PinchGesture, RotateGesture]);
-          const gesture = gestureEstimator.estimate(predictions[0].landmarks, 8);
-          if (gesture.gestures.length > 0) {
-            const bestGesture = gesture.gestures.reduce((a, b) => a.score > b.score ? a : b);
-            lastGesture = bestGesture.name;
-            status.textContent = `Gesture: ${lastGesture}`;
-            // Control triangle
-            if (lastGesture === 'pinch') {
-              triangle.scale.multiplyScalar(0.99); // Scale down
-            } else if (lastGesture === 'rotate') {
-              triangle.rotation.z += 0.05; // Rotate
+      // Load handpose model
+      async function initHandpose() {
+        if (!window.handpose) {
+          document.getElementById('error').textContent = 'Error: Handpose model failed to load.';
+          return;
+        }
+        const model = await window.handpose.load();
+        detectGestures(model);
+      }
+
+      async function detectGestures(model) {
+        if (video.readyState === 4) {
+          const predictions = await model.estimateHands(video);
+          if (predictions.length > 0) {
+            const gestureEstimator = new window.fingerpose.GestureEstimator([PinchGesture, RotateGesture]);
+            const gesture = gestureEstimator.estimate(predictions[0].landmarks, 8);
+            if (gesture.gestures.length > 0) {
+              const bestGesture = gesture.gestures.reduce((a, b) => a.score > b.score ? a : b);
+              lastGesture = bestGesture.name;
+              status.textContent = `Gesture: ${lastGesture}`;
+              // Control triangle
+              if (lastGesture === 'pinch') {
+                triangle.scale.multiplyScalar(0.99); // Scale down
+              } else if (lastGesture === 'rotate') {
+                triangle.rotation.z += 0.05; // Rotate
+              }
+            } else {
+              status.textContent = 'Gesture: None';
             }
-          } else {
-            status.textContent = 'Gesture: None';
           }
         }
+        requestAnimationFrame(() => detectGestures(model));
       }
-      requestAnimationFrame(() => detectGestures(model));
-    }
 
-    // Animation loop
-    function animate() {
-      requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-    }
+      // Animation loop
+      function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+      }
 
-    // Handle window resize
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      // Handle window resize
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // Start
+      initHandpose();
+      animate();
     });
-
-    // Start
-    initHandpose();
-    animate();
   </script>
 </body>
 </html>
