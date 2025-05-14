@@ -1,465 +1,421 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Pyramid Gesture Control</title>
-    <style>
-        body { 
-            margin: 0; 
-            overflow: hidden; 
-            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        
-        #arCanvas { 
-            width: 100vw; 
-            height: 100vh; 
-            display: block;
-        }
-        
-        #webcam {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            width: 160px;
-            height: 120px;
-            border: 3px solid #00ffaa;
-            border-radius: 8px;
-            box-shadow: 0 0 15px rgba(0, 255, 170, 0.5);
-            display: none;
-        }
-        
-        #handCanvas {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            width: 160px;
-            height: 120px;
-            pointer-events: none;
-            border-radius: 8px;
-        }
-        
-        .control-panel {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.6);
-            border-radius: 15px;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        #gestureStatus {
-            background: rgba(255, 255, 255, 0.9);
-            color: #333;
-            padding: 8px 15px;
-            border-radius: 20px;
-            margin-bottom: 10px;
-            font-weight: bold;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-            min-width: 200px;
-            text-align: center;
-        }
-        
-        #status {
-            background: rgba(255, 69, 0, 0.8);
-            color: white;
-            padding: 8px 15px;
-            border-radius: 20px;
-            margin-bottom: 10px;
-            display: none;
-            text-align: center;
-        }
-        
-        .control-btn {
-            padding: 8px 20px;
-            background: linear-gradient(45deg, #00c6ff, #0072ff);
-            color: white;
-            border: none;
-            border-radius: 25px;
-            cursor: pointer;
-            margin: 5px 0;
-            font-weight: bold;
-            transition: all 0.3s;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        }
-        
-        .control-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
-        }
-        
-        .control-btn:active {
-            transform: translateY(1px);
-        }
-        
-        #fps {
-            background: rgba(0, 0, 0, 0.7);
-            color: #00ffaa;
-            padding: 5px 15px;
-            border-radius: 15px;
-            margin-top: 10px;
-            font-family: monospace;
-            font-size: 14px;
-        }
-        
-        .title {
-            color: white;
-            margin: 0 0 10px 0;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>AR Pyramid Gesture Control</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: linear-gradient(145deg, #4b0082, #00b7eb);
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    #sceneCanvas {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+
+    #cameraFeed {
+      position: absolute;
+      bottom: 15px;
+      right: 15px;
+      width: 200px;
+      height: 150px;
+      border: 2px solid #ff00ff;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(255, 0, 255, 0.6);
+      object-fit: contain;
+      background: black;
+    }
+
+    #landmarkCanvas {
+      position: absolute;
+      bottom: 15px;
+      right: 15px;
+      width: 200px;
+      height: 150px;
+      pointer-events: none;
+      border-radius: 10px;
+    }
+
+    .ui-panel {
+      position: absolute;
+      top: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(10, 10, 30, 0.7);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .ui-title {
+      color: #ff00ff;
+      margin: 0 0 8px 0;
+      font-size: 18px;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    }
+
+    #gestureDisplay {
+      background: rgba(255, 255, 255, 0.85);
+      color: #111;
+      padding: 6px 12px;
+      border-radius: 15px;
+      font-weight: bold;
+      text-align: center;
+      min-width: 180px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    #alertMessage {
+      background: rgba(255, 0, 0, 0.8);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 15px;
+      margin-top: 8px;
+      text-align: center;
+      display: none;
+    }
+
+    .ui-button {
+      padding: 8px 18px;
+      background: linear-gradient(45deg, #ff00ff, #00ffff);
+      color: white;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.3s ease;
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    .ui-button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 5px 10px rgba(0, 0, 0, 0.4);
+    }
+
+    .ui-button:active {
+      transform: scale(0.95);
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+  </style>
 </head>
 <body>
-    <canvas id="arCanvas"></canvas>
-    <video id="webcam" autoplay playsinline></video>
-    <canvas id="handCanvas"></canvas>
-    
-    <div class="control-panel">
-        <h2 class="title">PYRAMID CONTROL</h2>
-        <div id="gestureStatus">Waiting for gesture...</div>
-        <div id="status"></div>
-        <button id="restartButton" class="control-btn">RESET TRACKING</button>
-        <button id="trackUpButton" class="control-btn">LIFT OBJECT</button>
-        <div id="fps">FPS: 0</div>
-    </div>
+  <canvas id="sceneCanvas"></canvas>
+  <video id="cameraFeed" autoplay playsinline></video>
+  <canvas id="landmarkCanvas"></canvas>
 
-    <!-- Подключение Three.js и зависимостей -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/loaders/OBJLoader.js"></script>
-    <!-- Подключение TensorFlow.js и HandPose -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.min.js"></script>
+  <div class="ui-panel">
+    <h2 class="ui-title">PYRAMID AR</h2>
+    <div id="gestureDisplay">Awaiting gesture...</div>
+    <div id="alertMessage"></div>
+    <button id="resetCamera" class="ui-button">RESET CAMERA</button>
+  </div>
 
-    <script>
-        // Функция для вывода статуса
-        function showStatus(message, isError = true) {
-            const statusDiv = document.getElementById('status');
-            statusDiv.style.display = 'block';
-            statusDiv.textContent = message;
-            statusDiv.style.background = isError ? 'rgba(255, 69, 0, 0.8)' : 'rgba(50, 205, 50, 0.8)';
-            if (!isError) {
-                setTimeout(() => {
-                    statusDiv.style.display = 'none';
-                }, 2000);
-            }
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.min.js"></script>
+  <script>
+    // Utility to display messages
+    function displayMessage(text, isError = true) {
+      const alert = document.getElementById('alertMessage');
+      alert.style.display = 'block';
+      alert.textContent = text;
+      alert.style.background = isError ? 'rgba(255, 0, 0, 0.8)' : 'rgba(0, 255, 0, 0.8)';
+      if (!isError) {
+        setTimeout(() => alert.style.display = 'none', 2000);
+      }
+    }
+
+    // Scene setup
+    displayMessage('Setting up scene...', false);
+    let world, view, canvasRenderer, shape;
+    try {
+      world = new THREE.Scene();
+      world.background = new THREE.Color(0x1a1a2e);
+      view = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      view.position.set(0, 0, 3);
+
+      canvasRenderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById('sceneCanvas'),
+        antialias: true,
+        alpha: true
+      });
+      canvasRenderer.setSize(window.innerWidth, window.innerHeight);
+      canvasRenderer.setPixelRatio(window.devicePixelRatio);
+      canvasRenderer.shadowMap.enabled = true;
+
+      // Lighting
+      const softLight = new THREE.AmbientLight(0x606060, 0.4);
+      world.add(softLight);
+      const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      mainLight.position.set(2, 2, 2);
+      mainLight.castShadow = true;
+      world.add(mainLight);
+      const accentLight = new THREE.PointLight(0x00ffff, 0.8, 10);
+      accentLight.position.set(0, 2, 2);
+      world.add(accentLight);
+
+      // Pyramid
+      const shapeGeometry = new THREE.ConeGeometry(0.5, 1, 4);
+      const shapeMaterial = new THREE.MeshPhongMaterial({
+        color: 0x00ffff,
+        shininess: 80,
+        emissive: 0x004444,
+        specular: 0xffffff
+      });
+      shape = new THREE.Mesh(shapeGeometry, shapeMaterial);
+      shape.castShadow = true;
+      world.add(shape);
+
+      // Base
+      const platformGeometry = new THREE.CylinderGeometry(1.2, 1.2, 0.1, 32);
+      const platformMaterial = new THREE.MeshStandardMaterial({
+        color: 0x444444,
+        roughness: 0.6,
+        metalness: 0.4
+      });
+      const platform = new THREE.Mesh(platformGeometry, platformMaterial);
+      platform.position.y = -0.7;
+      platform.receiveShadow = true;
+      world.add(platform);
+
+      // Glow effect
+      const glowGeometry = new THREE.ConeGeometry(0.55, 1.05, 4);
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.25,
+        wireframe: true
+      });
+      const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+      shape.add(glowMesh);
+      glowMesh.scale.set(1.1, 1.1, 1.1);
+
+      displayMessage('Scene initialized', false);
+    } catch (err) {
+      displayMessage('Scene setup failed: ' + err.message);
+    }
+
+    // Webcam setup
+    const videoElement = document.getElementById('cameraFeed');
+    async function setupCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: 320, height: 240 }
+        });
+        videoElement.srcObject = stream;
+        videoElement.onloadedmetadata = () => {
+          videoElement.play();
+          videoElement.style.display = 'block';
+          // Adjust video size to maintain aspect ratio
+          const aspect = videoElement.videoWidth / videoElement.videoHeight;
+          videoElement.height = 150;
+          videoElement.width = 150 * aspect;
+          displayMessage('Camera ready', false);
+        };
+      } catch (err) {
+        displayMessage('Camera error: ' + err.message);
+      }
+    }
+    setupCamera();
+
+    // Hand landmarks visualization
+    const overlayCanvas = document.getElementById('landmarkCanvas');
+    const ctx = overlayCanvas.getContext('2d');
+    function renderLandmarks(points, confidence) {
+      ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      if (!points) return;
+
+      const scaleX = overlayCanvas.width / videoElement.videoWidth;
+      const scaleY = overlayCanvas.height / videoElement.videoHeight;
+
+      const connections = [
+        [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
+        [0, 5], [5, 6], [6, 7], [7, 8], // Index
+        [0, 9], [9, 10], [10, 11], [11, 12], // Middle
+        [0, 13], [13, 14], [14, 15], [15, 16], // Ring
+        [0, 17], [17, 18], [18, 19], [19, 20] // Pinky
+      ];
+
+      ctx.strokeStyle = '#00ffff';
+      ctx.lineWidth = 2;
+      connections.forEach(([start, end]) => {
+        ctx.beginPath();
+        ctx.moveTo(points[start][0] * scaleX, points[start][1] * scaleY);
+        ctx.lineTo(points[end][0] * scaleX, points[end][1] * scaleY);
+        ctx.stroke();
+      });
+
+      ctx.fillStyle = '#ff00ff';
+      points.forEach((point, i) => {
+        const x = point[0] * scaleX;
+        const y = point[1] * scaleY;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        if (i === 0) {
+          ctx.font = '10px Orbitron';
+          ctx.fillStyle = 'white';
+          ctx.fillText(`Score: ${confidence.toFixed(2)}`, x - 30, y - 8);
         }
+      });
+    }
 
-        // Инициализация сцены
-        showStatus('Initializing...', false);
-        let scene, camera, renderer, pyramid;
+    // Hand tracking
+    let handModel;
+    async function initializeHandTracking() {
+      displayMessage('Loading hand tracking...', false);
+      try {
+        handModel = await window.handpose.load();
+        displayMessage('Hand tracking loaded', false);
+        setTimeout(detectGestures, 1000);
+      } catch (err) {
+        displayMessage('Hand tracking failed: ' + err.message);
+      }
+    }
+
+    async function detectGestures() {
+      if (!handModel) return;
+      const gestureDisplay = document.getElementById('gestureDisplay');
+      let prevPinchDist = null;
+      let prevWristPos = null;
+      let prevRotation = null;
+      const smoothFactor = 0.7;
+
+      async function processHands() {
         try {
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111122);
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 0, 3);
-            renderer = new THREE.WebGLRenderer({ 
-                canvas: document.getElementById('arCanvas'), 
-                antialias: true,
-                alpha: true
-            });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.shadowMap.enabled = true;
+          if (videoElement.readyState < 2) {
+            videoElement.addEventListener('playing', processHands, { once: true });
+            return;
+          }
 
-            // Освещение
-            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
-            scene.add(ambientLight);
-            
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-            directionalLight.position.set(1, 1, 1);
-            directionalLight.castShadow = true;
-            scene.add(directionalLight);
-            
-            const pointLight = new THREE.PointLight(0xffaa00, 1, 10);
-            pointLight.position.set(0, 2, 2);
-            scene.add(pointLight);
+          const hands = await handModel.estimateHands(videoElement);
+          if (hands.length > 0) {
+            const points = hands[0].landmarks;
+            const confidence = hands[0].handInViewConfidence;
+            renderLandmarks(points, confidence);
+            displayMessage(`Hand detected (${confidence.toFixed(2)})`, false);
 
-            // Пирамида вместо куба
-            const pyramidGeometry = new THREE.ConeGeometry(0.4, 0.8, 4);
-            const pyramidMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0x00ffaa,
-                shininess: 100,
-                emissive: 0x003300,
-                specular: 0xffffff
-            });
-            pyramid = new THREE.Mesh(pyramidGeometry, pyramidMaterial);
-            pyramid.position.set(0, 0, 0);
-            pyramid.castShadow = true;
-            scene.add(pyramid);
+            // Smooth wrist position
+            const wrist = { x: points[0][0], y: points[0][1] };
+            if (prevWristPos) {
+              wrist.x = smoothFactor * prevWristPos.x + (1 - smoothFactor) * wrist.x;
+              wrist.y = smoothFactor * prevWristPos.y + (1 - smoothFactor) * wrist.y;
+            }
 
-            // Подставка
-            const baseGeometry = new THREE.CylinderGeometry(1, 1, 0.1, 32);
-            const baseMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x333333,
-                roughness: 0.7,
-                metalness: 0.3
-            });
-            const base = new THREE.Mesh(baseGeometry, baseMaterial);
-            base.position.set(0, -0.6, 0);
-            base.receiveShadow = true;
-            scene.add(base);
+            // Pinch gesture (scale)
+            const thumb = points[4];
+            const index = points[8];
+            const pinchDist = Math.hypot(thumb[0] - index[0], thumb[1] - index[1]);
+            if (prevPinchDist !== null) {
+              const scaleDelta = (prevPinchDist - pinchDist) / 100;
+              if (Math.abs(scaleDelta) > 0.02) {
+                shape.scale.multiplyScalar(1 - scaleDelta);
+                shape.scale.clampScalar(0.5, 2);
+                gestureDisplay.textContent = 'Pinch to scale';
+              }
+            }
+            prevPinchDist = pinchDist;
 
-            // Эффекты
-            const glowGeometry = new THREE.ConeGeometry(0.45, 0.85, 4);
-            const glowMaterial = new THREE.MeshBasicMaterial({
-                color: 0x00ffaa,
-                transparent: true,
-                opacity: 0.3,
-                wireframe: true
-            });
-            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-            pyramid.add(glow);
-            glow.position.set(0, 0, 0);
-            glow.scale.set(1.1, 1.1, 1.1);
+            // Hand movement (position)
+            if (prevWristPos !== null) {
+              const dx = (wrist.x - prevWristPos.x) / videoElement.videoWidth * 2;
+              const dy = (wrist.y - prevWristPos.y) / videoElement.videoHeight * 2;
+              if (Math.abs(dx) > 0.005 || Math.abs(dy) > 0.005) {
+                shape.position.x += dx;
+                shape.position.y -= dy;
+                gestureDisplay.textContent = 'Move hand to reposition';
+              }
+            }
+            prevWristPos = wrist;
 
-            showStatus('Scene ready', false);
+            // Palm rotation
+            const middleFinger = points[9];
+            const angle = Math.atan2(middleFinger[1] - wrist.y, middleFinger[0] - wrist.x);
+            if (prevRotation !== null) {
+              const angleDiff = angle - prevRotation;
+              if (Math.abs(angleDiff) > 0.02) {
+                shape.rotation.y += angleDiff;
+                gestureDisplay.textContent = 'Rotate hand to spin';
+              }
+            }
+            prevRotation = angle;
+          } else {
+            prevPinchDist = null;
+            prevWristPos = null;
+            prevRotation = null;
+            gestureDisplay.textContent = 'Show your hand';
+            renderLandmarks(null, 0);
+          }
+          requestAnimationFrame(processHands);
         } catch (err) {
-            showStatus('Scene error: ' + err.message);
+          displayMessage('Gesture detection error: ' + err.message);
         }
+      }
+      processHands();
+    }
+    initializeHandTracking();
 
-        // Доступ к веб-камере
-        const video = document.getElementById('webcam');
-        async function initWebcam() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment', width: 320, height: 240 }
-                });
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    video.play();
-                    video.style.display = 'block';
-                    showStatus('Camera active', false);
-                };
-            } catch (err) {
-                showStatus('Camera error: ' + err.message);
-            }
+    // Reset button
+    document.getElementById('resetCamera').addEventListener('click', () => {
+      if (videoElement.srcObject) {
+        videoElement.srcObject.getTracks().forEach(track => track.stop());
+        videoElement.srcObject = null;
+        videoElement.style.display = 'none';
+      }
+      setupCamera();
+      initializeHandTracking();
+      displayMessage('Resetting camera...', false);
+    });
+
+    // Animation loop
+    function renderScene() {
+      try {
+        requestAnimationFrame(renderScene);
+        if (shape && shape.children[0]) {
+          shape.children[0].rotation.y += 0.01;
         }
-        initWebcam();
-
-        // Визуализация ключевых точек руки
-        const handCanvas = document.getElementById('handCanvas');
-        const ctx = handCanvas.getContext('2d');
-        function drawHandLandmarks(landmarks, score) {
-            ctx.clearRect(0, 0, handCanvas.width, handCanvas.height);
-            if (!landmarks) return;
-            
-            const scaleX = handCanvas.width / video.videoWidth;
-            const scaleY = handCanvas.height / video.videoHeight;
-
-            // Рисуем линии между ключевыми точками
-            const connections = [
-                [0, 1], [1, 2], [2, 3], [3, 4], // Большой палец
-                [0, 5], [5, 6], [6, 7], [7, 8], // Указательный
-                [0, 9], [9, 10], [10, 11], [11, 12], // Средний
-                [0, 13], [13, 14], [14, 15], [15, 16], // Безымянный
-                [0, 17], [17, 18], [18, 19], [19, 20] // Мизинец
-            ];
-            
-            ctx.strokeStyle = '#00ffaa';
-            ctx.lineWidth = 2;
-            connections.forEach(([start, end]) => {
-                ctx.beginPath();
-                ctx.moveTo(landmarks[start][0] * scaleX, landmarks[start][1] * scaleY);
-                ctx.lineTo(landmarks[end][0] * scaleX, landmarks[end][1] * scaleY);
-                ctx.stroke();
-            });
-
-            // Рисуем точки
-            ctx.fillStyle = '#ff00aa';
-            landmarks.forEach((lm, i) => {
-                const x = lm[0] * scaleX;
-                const y = lm[1] * scaleY;
-                ctx.beginPath();
-                ctx.arc(x, y, 3, 0, 2 * Math.PI);
-                ctx.fill();
-                if (i === 0) {
-                    ctx.font = '10px Arial';
-                    ctx.fillStyle = 'white';
-                    ctx.fillText(`Confidence: ${score.toFixed(2)}`, x - 30, y - 8);
-                }
-            });
+        if (canvasRenderer && world && view) {
+          canvasRenderer.render(world, view);
         }
+      } catch (err) {
+        displayMessage('Rendering error: ' + err.message);
+      }
+    }
+    renderScene();
 
-        // FPS
-        let lastTime = performance.now();
-        let frameCount = 0;
-        function updateFPS() {
-            const now = performance.now();
-            frameCount++;
-            if (now - lastTime >= 1000) {
-                const fps = Math.round(frameCount * 1000 / (now - lastTime));
-                document.getElementById('fps').textContent = `FPS: ${fps}`;
-                frameCount = 0;
-                lastTime = now;
-            }
-        }
+    // Resize handling
+    window.addEventListener('resize', () => {
+      if (view) {
+        view.aspect = window.innerWidth / window.innerHeight;
+        view.updateProjectionMatrix();
+      }
+      if (canvasRenderer) {
+        canvasRenderer.setSize(window.innerWidth, window.innerHeight);
+      }
+      overlayCanvas.width = 200;
+      overlayCanvas.height = 150;
+      // Adjust video size on resize
+      if (videoElement.videoWidth && videoElement.videoHeight) {
+        const aspect = videoElement.videoWidth / videoElement.videoHeight;
+        videoElement.height = 150;
+        videoElement.width = 150 * aspect;
+      }
+    });
 
-        // Настройка HandPose
-        let model;
-        async function initHandPose() {
-            showStatus('Loading hand model...', false);
-            try {
-                model = await handpose.load();
-                showStatus('Hand tracking ready', false);
-                setTimeout(startHandDetection, 1000);
-            } catch (err) {
-                showStatus('Hand model error: ' + err.message);
-            }
-        }
-
-        async function startHandDetection() {
-            if (!model) return;
-            const gestureStatus = document.getElementById('gestureStatus');
-            let lastPinchDistance = null;
-            let lastWristPosition = null;
-            let lastHandRotation = null;
-            const smoothing = 0.7;
-
-            async function detectHands() {
-                try {
-                    const predictions = await model.estimateHands(video);
-                    if (predictions.length > 0) {
-                        const landmarks = predictions[0].landmarks;
-                        const score = predictions[0].handInViewConfidence;
-                        drawHandLandmarks(landmarks, score);
-                        showStatus(`Hand detected (${score.toFixed(2)})`, false);
-
-                        // Сглаживание запястья
-                        const wrist = { x: landmarks[0][0], y: landmarks[0][1] };
-                        if (lastWristPosition) {
-                            wrist.x = smoothing * lastWristPosition.x + (1 - smoothing) * wrist.x;
-                            wrist.y = smoothing * lastWristPosition.y + (1 - smoothing) * wrist.y;
-                        }
-
-                        // Сжатие пальцев (масштаб)
-                        const thumbTip = landmarks[4];
-                        const indexTip = landmarks[8];
-                        const pinchDistance = Math.hypot(
-                            thumbTip[0] - indexTip[0],
-                            thumbTip[1] - indexTip[1]
-                        );
-                        if (lastPinchDistance !== null) {
-                            const scaleChange = (lastPinchDistance - pinchDistance) / 100;
-                            if (Math.abs(scaleChange) > 0.02) {
-                                pyramid.scale.multiplyScalar(1 - scaleChange);
-                                pyramid.scale.clampScalar(0.5, 2);
-                                gestureStatus.textContent = 'Pinch to scale';
-                            }
-                        }
-                        lastPinchDistance = pinchDistance;
-
-                        // Перемещение ладони (позиция)
-                        if (lastWristPosition !== null) {
-                            const dx = (wrist.x - lastWristPosition.x) / video.videoWidth * 2;
-                            const dy = (wrist.y - lastWristPosition.y) / video.videoHeight * 2;
-                            if (Math.abs(dx) > 0.005 || Math.abs(dy) > 0.005) {
-                                pyramid.position.x += dx;
-                                pyramid.position.y -= dy;
-                                gestureStatus.textContent = 'Move hand to position';
-                            }
-                        }
-                        lastWristPosition = wrist;
-
-                        // Поворот ладони (вращение)
-                        const middleFinger = landmarks[9];
-                        const angle = Math.atan2(
-                            middleFinger[1] - wrist.y,
-                            middleFinger[0] - wrist.x
-                        );
-                        if (lastHandRotation !== null) {
-                            const angleDiff = angle - lastHandRotation;
-                            if (Math.abs(angleDiff) > 0.02) {
-                                pyramid.rotation.y += angleDiff;
-                                gestureStatus.textContent = 'Rotate hand to spin';
-                            }
-                        }
-                        lastHandRotation = angle;
-                    } else {
-                        lastPinchDistance = null;
-                        lastWristPosition = null;
-                        lastHandRotation = null;
-                        gestureStatus.textContent = 'Show your hand';
-                        drawHandLandmarks(null, 0);
-                    }
-                    requestAnimationFrame(detectHands);
-                } catch (err) {
-                    showStatus('Tracking error: ' + err.message);
-                }
-            }
-            if (video.readyState >= 2) {
-                detectHands();
-            } else {
-                video.addEventListener('playing', detectHands, { once: true });
-            }
-        }
-        initHandPose();
-
-        // Кнопка перезапуска
-        document.getElementById('restartButton').addEventListener('click', () => {
-            if (video.srcObject) {
-                video.srcObject.getTracks().forEach(track => track.stop());
-                video.srcObject = null;
-                video.style.display = 'none';
-            }
-            initWebcam();
-            initHandPose();
-            showStatus('Resetting tracking...', false);
-        });
-
-        // Кнопка поднятия объекта
-        document.getElementById('trackUpButton').addEventListener('click', () => {
-            pyramid.position.y += 0.5;
-            if (pyramid.position.y > 1.5) {
-                pyramid.position.y = 0;
-            }
-            showStatus(`Object height: ${pyramid.position.y.toFixed(1)}`, false);
-        });
-
-        // Анимация
-        function animate() {
-            try {
-                requestAnimationFrame(animate);
-                
-                // Анимация свечения пирамиды
-                if (pyramid && pyramid.children[0]) {
-                    pyramid.children[0].rotation.y += 0.01;
-                }
-                
-                if (renderer && scene && camera) {
-                    renderer.render(scene, camera);
-                    updateFPS();
-                }
-            } catch (err) {
-                showStatus('Render error: ' + err.message);
-            }
-        }
-        animate();
-
-        // Обработка изменения размера
-        window.addEventListener('resize', () => {
-            if (camera) {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-            }
-            if (renderer) {
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            }
-            handCanvas.width = 160;
-            handCanvas.height = 120;
-        });
-
-        // Проверка HTTPS
-        if (window.location.protocol !== 'https:') {
-            showStatus('Note: HTTPS required for camera access on some devices');
-        }
-    </script>
+    // HTTPS check
+    if (window.location.protocol !== 'https:') {
+      displayMessage('HTTPS required for camera access on some devices');
+    }
+  </script>
 </body>
 </html>
